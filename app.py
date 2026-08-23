@@ -23,13 +23,17 @@ with col2:
 
 st.divider()
 
-# Get total universe count
+# Safely read universe stock count
 universe_file = Path("resources/universe.csv")
+total_universe = "N/A"
+
 if universe_file.exists():
-    universe_df = pd.read_csv(universe_file)
-    total_universe = len(universe_df)
-else:
-    total_universe = "N/A"
+    try:
+        universe_df = pd.read_csv(universe_file)
+        if not universe_df.empty:
+            total_universe = len(universe_df)
+    except Exception:
+        total_universe = "N/A"
 
 # Locate scanner output data file
 data_file = Path("strong_stocks.csv")
@@ -44,15 +48,20 @@ with m_col1:
 
 with m_col2:
     if data_file.exists():
-        df = pd.read_csv(data_file)
-        st.metric("Total Strong Stocks Found", len(df))
+        try:
+            df = pd.read_csv(data_file)
+            st.metric("Total Strong Stocks Found", len(df))
+        except Exception:
+            df = pd.DataFrame()
+            st.metric("Total Strong Stocks Found", 0)
     else:
+        df = pd.DataFrame()
         st.metric("Total Strong Stocks Found", 0)
 
 st.write("")
 
 # Display interactive data table
-if data_file.exists():
+if not df.empty:
     st.dataframe(df, use_container_width=True, hide_index=True)
 else:
     st.warning("No generated scanner output found yet.")
