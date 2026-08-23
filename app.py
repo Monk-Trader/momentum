@@ -8,8 +8,8 @@ st.set_page_config(page_title="Momentum Scanner", layout="wide")
 col1, col2 = st.columns([4, 1])
 
 with col1:
-    st.title("🚀 Daily Momentum Stock Screener")
-    st.write("Welcome to the automated momentum stock scanner!")
+    st.title(" Momentum Screener")
+    st.write("Welcome to the automated momentum scanner!")
 
 with col2:
     # Free auto-incrementing visitor counter SVG
