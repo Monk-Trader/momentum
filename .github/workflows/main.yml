@@ -1,0 +1,42 @@
+name: Daily Quant Engine Run
+
+on:
+  workflow_dispatch: # Allows manual click trigger
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout fresh code
+      uses: actions/checkout@v4
+      with:
+        clean: true            # Wipes out any cached runner artifacts
+        fetch-depth: 0         # Fetches full history completely clean
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Quant Libraries
+      run: |
+        pip install --no-cache-dir pandas yfinance pyarrow fastparquet tqdm
+
+    - name: Emergency File Alignment Fix
+      run: |
+        # This bash script forces the files into place right on the OS level, bypassing Python path errors entirely
+        echo "=== Current Working Directory Content ==="
+        ls -R
+        
+        # Make absolutely sure the directory exists
+        mkdir -p resources
+        
+        # If universe.csv is in the root, move it into resources
+        if [ -f "universe.csv" ]; then
+          mv universe.csv resources/universe.csv
+        fi
+
+    - name: Execute Momentum Engine
+      run: |
+        python main.py
