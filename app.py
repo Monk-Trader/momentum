@@ -23,8 +23,11 @@ with col2:
 
 st.divider()
 
-# Safely read universe stock count
+# Look for universe.csv in resources/ folder or root folder
 universe_file = Path("resources/universe.csv")
+if not universe_file.exists():
+    universe_file = Path("universe.csv")
+
 total_universe = "N/A"
 
 if universe_file.exists():
