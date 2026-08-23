@@ -4,8 +4,25 @@ from pathlib import Path
 
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
-st.title("🚀 Daily Momentum Stock Screener")
-st.write("Welcome to the automated momentum stock scanner!")
+# Add header and visitor counter badge
+col1, col2 = st.columns([4, 1])
+
+with col1:
+    st.title("🚀 Daily Momentum Stock Screener")
+    st.write("Welcome to the automated momentum stock scanner!")
+
+with col2:
+    # Free auto-incrementing visitor counter SVG
+    st.markdown(
+        """
+        <div style="text-align: right; padding-top: 10px;">
+            <img src="https://visitor-badge.laobi.icu/badge?page_id=monk-trader.momentum" alt="Visitor Count">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+st.divider()
 
 # Look in both root and output folder as fallback
 data_file = Path("strong_stocks.csv")
