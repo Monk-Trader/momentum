@@ -424,3 +424,145 @@ def render_gold_silver_widget():
         )
     except Exception as e:
         st.error(f"Unable to load Gold / Silver chart: {e}")
+
+# ==========================================
+# 4. OIL / GOLD RATIO
+# ==========================================
+@st.cache_data(ttl=14400)
+def get_oil_gold_ratio_data():
+    start_date = "1985-01-01"
+    oil = fetch_ticker_data("CL=F", start_date)
+    gold = fetch_ticker_data("GC=F", start_date)
+
+    df = pd.DataFrame({"Oil": oil, "Gold": gold})
+    df = df.ffill().bfill().dropna()
+
+    # Barrels of Oil per Ounce of Gold
+    df["Ratio"] = df["Gold"] / df["Oil"]
+
+    mean_val = df["Ratio"].mean()
+    std_val = df["Ratio"].std()
+
+    bands = {
+        "Upper_2SD": mean_val + (2 * std_val),
+        "Upper_1SD": mean_val + std_val,
+        "Mean": mean_val,
+        "Lower_1SD": mean_val - std_val,
+        "Lower_2SD": mean_val - (2 * std_val),
+    }
+
+    return df, bands
+
+
+def render_oil_gold_widget():
+    try:
+        df, bands = get_oil_gold_ratio_data()
+        latest_ratio = df["Ratio"].iloc[-1]
+        latest_date = df.index[-1].strftime("%b %d, %Y")
+
+        if latest_ratio >= bands["Upper_2SD"]:
+            status_text, status_color = (
+                "Extreme Cheap Oil / Deflation Panic",
+                "#d62728",
+            )
+        elif latest_ratio >= bands["Upper_1SD"]:
+            status_text, status_color = (
+                "High Gold Premium (Defensive)",
+                "#ff7f0e",
+            )
+        elif latest_ratio >= bands["Lower_1SD"]:
+            status_text, status_color = "Fair Value Zone", "#2ca02c"
+        elif latest_ratio >= bands["Lower_2SD"]:
+            status_text, status_color = (
+                "High Energy Inflation Pressure",
+                "#2196F3",
+            )
+        else:
+            status_text, status_color = (
+                "Extreme Oil Shock / Energy Crisis",
+                "#9467bd",
+            )
+
+        st.caption(
+            "Gold Futures (USD/Oz) vs. WTI Crude Oil (USD/bbl) — 40-Year History"
+        )
+        st.metric(
+            label="Latest Gold/Oil Ratio",
+            value=f"{latest_ratio:.2f}",
+            help="Barrels of Crude Oil equal to 1 Ounce of Gold",
+        )
+        st.markdown(
+            f"""<div style="background-color: {status_color}; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; text-align: center; margin-bottom: 12px;">{status_text}</div>""",
+            unsafe_allow_html=True,
+        )
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df["Ratio"],
+                mode="lines",
+                name="Gold / Oil",
+                line=dict(color="#ef4444", width=1.8),
+            )
+        )
+        fig.add_hline(
+            y=bands["Upper_2SD"],
+            line_dash="dashdot",
+            line_color="#d62728",
+            annotation_text="+2 SD",
+            annotation_position="top right",
+        )
+        fig.add_hline(
+            y=bands["Upper_1SD"],
+            line_dash="dash",
+            line_color="#ff7f0e",
+            annotation_text="+1 SD",
+            annotation_position="top right",
+        )
+        fig.add_hline(
+            y=bands["Mean"],
+            line_dash="dash",
+            line_color="#333333",
+            annotation_text="Mean",
+            annotation_position="top right",
+        )
+        fig.add_hline(
+            y=bands["Lower_1SD"],
+            line_dash="dash",
+            line_color="#2ca02c",
+            annotation_text="-1 SD",
+            annotation_position="bottom right",
+        )
+        fig.add_hline(
+            y=bands["Lower_2SD"],
+            line_dash="dashdot",
+            line_color="#9467bd",
+            annotation_text="-2 SD",
+            annotation_position="bottom right",
+        )
+
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=320,
+            template="plotly_white",
+            showlegend=False,
+            xaxis=dict(showgrid=True),
+            yaxis=dict(showgrid=True),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown(
+            f"""
+            **40-Year Valuation Bands:**
+            - **+2 SD (Cheap Oil / Deflation):** `{bands['Upper_2SD']:.2f}`
+            - **+1 SD (High Ratio):** `{bands['Upper_1SD']:.2f}`
+            - **Mean (Historical Average):** `{bands['Mean']:.2f}`
+            - **-1 SD (High Oil Price):** `{bands['Lower_1SD']:.2f}`
+            - **-2 SD (Extreme Energy Shock):** `{bands['Lower_2SD']:.2f}`
+            
+            *Updated: {latest_date}*
+            """
+        )
+    except Exception as e:
+        st.error(f"Unable to load Gold / Oil chart: {e}")
