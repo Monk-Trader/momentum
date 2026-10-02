@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import streamlit as st
-from gold_ratio import render_gold_ratio_widget
+from gold_ratio import render_gold_nifty_widget
 
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
@@ -24,15 +24,31 @@ with col2:
 
 st.divider()
 
-# Split Main Page into Left Sidebar Portion (1) and Right Main Content Portion (2.5)
+# Split Main Page into Left Portion (1) and Right Portion (2.5)
 left_section, right_section = st.columns([1, 2.5], gap="medium")
 
 # ==========================================
-# LEFT PORTION: Gold Ratio Charts & Analysis
+# LEFT PORTION: Gold Ratio Suite (Tabbed)
 # ==========================================
 with left_section:
-    with st.container(border=True):
-        render_gold_ratio_widget()
+    st.subheader("Gold Ratio Charts")
+
+    # Create Tabbed Layout for ratio suite
+    tab_nifty, tab_copper, tab_silver = st.tabs(
+        ["Gold / Nifty 500", "Gold / Copper", "Gold / Silver"]
+    )
+
+    with tab_nifty:
+        with st.container(border=True):
+            render_gold_nifty_widget()
+
+    with tab_copper:
+        with st.container(border=True):
+            st.info("Gold / Copper ratio analysis coming soon.")
+
+    with tab_silver:
+        with st.container(border=True):
+            st.info("Gold / Silver ratio analysis coming soon.")
 
 # ==========================================
 # RIGHT PORTION: Momentum Stock Screener Data
