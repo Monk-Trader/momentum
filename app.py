@@ -1,7 +1,11 @@
 import pandas as pd
 from pathlib import Path
 import streamlit as st
-from gold_ratio import render_gold_copper_widget, render_gold_nifty_widget
+from gold_ratio import (
+    render_gold_copper_widget,
+    render_gold_nifty_widget,
+    render_gold_silver_widget,
+)
 
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
@@ -43,11 +47,11 @@ with left_section:
 
     with tab_copper:
         with st.container(border=True):
-            render_gold_copper_widget()  # <-- Render 40-year Gold/Copper ratio here
+            render_gold_copper_widget()
 
     with tab_silver:
         with st.container(border=True):
-            st.info("Gold / Silver ratio analysis coming soon.")
+            render_gold_silver_widget()
 
 # ==========================================
 # RIGHT PORTION: Momentum Stock Screener Data
