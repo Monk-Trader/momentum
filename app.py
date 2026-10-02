@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import streamlit as st
-from gold_ratio import render_gold_nifty_widget
+from gold_ratio import render_gold_copper_widget, render_gold_nifty_widget
 
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
@@ -33,7 +33,6 @@ left_section, right_section = st.columns([1, 2.5], gap="medium")
 with left_section:
     st.subheader("Gold Ratio Charts")
 
-    # Create Tabbed Layout for ratio suite
     tab_nifty, tab_copper, tab_silver = st.tabs(
         ["Gold / Nifty 500", "Gold / Copper", "Gold / Silver"]
     )
@@ -44,7 +43,7 @@ with left_section:
 
     with tab_copper:
         with st.container(border=True):
-            st.info("Gold / Copper ratio analysis coming soon.")
+            render_gold_copper_widget()  # <-- Render 40-year Gold/Copper ratio here
 
     with tab_silver:
         with st.container(border=True):
