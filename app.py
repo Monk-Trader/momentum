@@ -5,6 +5,7 @@ from gold_ratio import (
     render_gold_copper_widget,
     render_gold_nifty_widget,
     render_gold_silver_widget,
+    render_oil_gold_widget,
 )
 
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
@@ -34,11 +35,17 @@ left_section, right_section = st.columns([1, 2.5], gap="medium")
 # ==========================================
 # LEFT PORTION: Gold Ratio Suite (Tabbed)
 # ==========================================
+# ... inside left_section ...
 with left_section:
-    st.subheader("Gold Ratio Charts")
+    st.subheader("Macro & Commodity Ratios")
 
-    tab_nifty, tab_copper, tab_silver = st.tabs(
-        ["Gold / Nifty 500", "Gold / Copper", "Gold / Silver"]
+    (
+        tab_nifty,
+        tab_copper,
+        tab_silver,
+        tab_oil,
+    ) = st.tabs(
+        ["Gold / Nifty", "Gold / Copper", "Gold / Silver", "Gold / Oil"]
     )
 
     with tab_nifty:
@@ -52,6 +59,10 @@ with left_section:
     with tab_silver:
         with st.container(border=True):
             render_gold_silver_widget()
+
+    with tab_oil:
+        with st.container(border=True):
+            render_oil_gold_widget()
 
 # ==========================================
 # RIGHT PORTION: Momentum Stock Screener Data
