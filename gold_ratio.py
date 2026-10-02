@@ -4,7 +4,7 @@ import streamlit as st
 import yfinance as yf
 
 
-def fetch_ticker_data(ticker, start_date="1998-01-01"):
+def fetch_ticker_data(ticker, start_date="1985-01-01"):
     """Safely fetch daily Close price for a ticker."""
     data = yf.download(ticker, start=start_date, progress=False)
     if data.empty:
@@ -22,30 +22,25 @@ def fetch_ticker_data(ticker, start_date="1998-01-01"):
 
 
 @st.cache_data(ttl=14400)  # Cache results for 4 hours
-def get_gold_nifty_ratio_data():
-    """Fetch Nifty 500 (in USD) and Gold (in USD) to compute daily ratio and valuation bands."""
-    start_date = "1998-01-01"
+def get_gold_copper_ratio_data():
+    """Fetch Gold Futures (GC=F in USD/Oz) and Copper Futures (HG=F in USD/lb)
 
-    # Fetch Nifty 500 (^CRSLDX), USD/INR (INR=X), and Gold Futures (GC=F)
-    try:
-        nifty = fetch_ticker_data("^CRSLDX", start_date)
-        index_label = "Nifty 500"
-    except Exception:
-        nifty = fetch_ticker_data("^NSEI", start_date)
-        index_label = "Nifty 50"
+    over a 40-year horizon to calculate the Gold/Copper ratio and valuation bands.
+    """
+    start_date = "1985-01-01"
 
-    usdinr = fetch_ticker_data("INR=X", start_date)
+    # Fetch Gold Futures (GC=F) and Copper Futures (HG=F)
     gold = fetch_ticker_data("GC=F", start_date)
+    copper = fetch_ticker_data("HG=F", start_date)
 
-    # Align dates across US/Indian market holidays
-    df = pd.DataFrame({"Nifty": nifty, "USDINR": usdinr, "Gold": gold})
+    # Align dates across commodity exchange calendar gaps
+    df = pd.DataFrame({"Gold": gold, "Copper": copper})
     df = df.ffill().bfill().dropna()
 
-    # Calculate USD-denominated Nifty and Ratio (Unchanged logic)
-    df["Nifty_USD"] = df["Nifty"] / df["USDINR"]
-    df["Ratio"] = df["Nifty_USD"] / df["Gold"]
+    # Ratio = Gold Price ($/Oz) / Copper Price ($/lb)
+    df["Ratio"] = df["Gold"] / df["Copper"]
 
-    # Calculate Valuation Bands
+    # Calculate 40-Year Valuation Bands
     mean_val = df["Ratio"].mean()
     std_val = df["Ratio"].std()
 
@@ -57,37 +52,44 @@ def get_gold_nifty_ratio_data():
         "Lower_2SD": mean_val - (2 * std_val),
     }
 
-    return df, bands, index_label
+    return df, bands
 
 
-def render_gold_nifty_widget():
-    """Renders the Gold / Nifty 500 Ratio Card inside Streamlit."""
+def render_gold_copper_widget():
+    """Renders the 40-Year Gold / Copper Ratio Card inside Streamlit."""
     try:
-        df, bands, index_label = get_gold_nifty_ratio_data()
+        df, bands = get_gold_copper_ratio_data()
 
         latest_ratio = df["Ratio"].iloc[-1]
         latest_date = df.index[-1].strftime("%b %d, %Y")
 
         # Determine regime signal
         if latest_ratio >= bands["Upper_2SD"]:
-            status_text, status_color = "Extreme Bubble (Rotate to Gold)", "#d62728"
+            status_text, status_color = (
+                "Extreme Slowdown / Risk-Off Panic",
+                "#d62728",
+            )
         elif latest_ratio >= bands["Upper_1SD"]:
-            status_text, status_color = "Overvalued Equities", "#ff7f0e"
+            status_text, status_color = "Economic Slowdown / Defensive", "#ff7f0e"
         elif latest_ratio >= bands["Lower_1SD"]:
-            status_text, status_color = "Fair Value Zone", "#2ca02c"
+            status_text, status_color = "Normal Economic Growth", "#2ca02c"
         elif latest_ratio >= bands["Lower_2SD"]:
-            status_text, status_color = "Undervalued Equities", "#2196F3"
+            status_text, status_color = "Strong Reflation / Growth", "#2196F3"
         else:
             status_text, status_color = (
-                "Deep Value (Rotate to Equities)",
+                "Extreme Economic Expansion / Commodity Boom",
                 "#9467bd",
             )
 
         # Header Details
-        st.caption(f"{index_label} (USD) vs. Gold Futures (USD/Oz)")
+        st.caption("Gold Futures (USD/Oz) vs. Copper Futures (USD/lb) — 40-Year History")
 
         # Metric Card
-        st.metric(label="Latest USD Ratio", value=f"{latest_ratio:.4f}")
+        st.metric(
+            label="Latest Gold/Copper Ratio",
+            value=f"{latest_ratio:.2f}",
+            help="Ounces of Gold needed to buy 1 pound of Copper",
+        )
         st.markdown(
             f"""
             <div style="background-color: {status_color}; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; text-align: center; margin-bottom: 12px;">
@@ -106,8 +108,8 @@ def render_gold_nifty_widget():
                 x=df.index,
                 y=df["Ratio"],
                 mode="lines",
-                name="Gold / Nifty 500",
-                line=dict(color="#1f77b4", width=1.8),
+                name="Gold / Copper",
+                line=dict(color="#d97706", width=1.8),  # Amber color for commodities
             )
         )
 
@@ -162,15 +164,15 @@ def render_gold_nifty_widget():
         # Summary Metrics Table
         st.markdown(
             f"""
-            **Valuation Bands:**
-            - **+2 SD (Extreme):** `{bands['Upper_2SD']:.4f}`
-            - **+1 SD (Overvalued):** `{bands['Upper_1SD']:.4f}`
-            - **Mean (Fair Value):** `{bands['Mean']:.4f}`
-            - **-1 SD (Undervalued):** `{bands['Lower_1SD']:.4f}`
-            - **-2 SD (Deep Value):** `{bands['Lower_2SD']:.4f}`
+            **40-Year Valuation Bands:**
+            - **+2 SD (Extreme Risk-Off):** `{bands['Upper_2SD']:.2f}`
+            - **+1 SD (Slowdown):** `{bands['Upper_1SD']:.2f}`
+            - **Mean (Historical Average):** `{bands['Mean']:.2f}`
+            - **-1 SD (Reflation Growth):** `{bands['Lower_1SD']:.2f}`
+            - **-2 SD (Boom / Commodity Peak):** `{bands['Lower_2SD']:.2f}`
             
             *Updated: {latest_date}*
             """
         )
     except Exception as e:
-        st.error(f"Unable to load Gold / Nifty 500 chart: {e}")
+        st.error(f"Unable to load Gold / Copper chart: {e}")
