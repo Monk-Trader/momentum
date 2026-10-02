@@ -4,7 +4,7 @@ import streamlit as st
 import yfinance as yf
 
 
-def fetch_ticker_data(ticker, start_date="2008-01-01"):
+def fetch_ticker_data(ticker, start_date="1998-01-01"):
     """Safely fetch daily Close price for a ticker."""
     data = yf.download(ticker, start=start_date, progress=False)
     if data.empty:
@@ -21,10 +21,10 @@ def fetch_ticker_data(ticker, start_date="2008-01-01"):
     return series.dropna()
 
 
-@st.cache_data(ttl=14400)  # Cache results for 4 hours to keep page reloads fast
-def get_gold_ratio_data():
+@st.cache_data(ttl=14400)  # Cache results for 4 hours
+def get_gold_nifty_ratio_data():
     """Fetch Nifty 500 (in USD) and Gold (in USD) to compute daily ratio and valuation bands."""
-    start_date = "2008-01-01"
+    start_date = "1998-01-01"
 
     # Fetch Nifty 500 (^CRSLDX), USD/INR (INR=X), and Gold Futures (GC=F)
     try:
@@ -41,7 +41,7 @@ def get_gold_ratio_data():
     df = pd.DataFrame({"Nifty": nifty, "USDINR": usdinr, "Gold": gold})
     df = df.ffill().bfill().dropna()
 
-    # Calculate USD-denominated Nifty and Ratio
+    # Calculate USD-denominated Nifty and Ratio (Unchanged logic)
     df["Nifty_USD"] = df["Nifty"] / df["USDINR"]
     df["Ratio"] = df["Nifty_USD"] / df["Gold"]
 
@@ -60,10 +60,10 @@ def get_gold_ratio_data():
     return df, bands, index_label
 
 
-def render_gold_ratio_widget():
-    """Renders the Gold Ratio Analysis Card inside Streamlit."""
+def render_gold_nifty_widget():
+    """Renders the Gold / Nifty 500 Ratio Card inside Streamlit."""
     try:
-        df, bands, index_label = get_gold_ratio_data()
+        df, bands, index_label = get_gold_nifty_ratio_data()
 
         latest_ratio = df["Ratio"].iloc[-1]
         latest_date = df.index[-1].strftime("%b %d, %Y")
@@ -83,9 +83,8 @@ def render_gold_ratio_widget():
                 "#9467bd",
             )
 
-        # Container Header
-        st.subheader("Gold Ratio Charts")
-        st.caption(f"{index_label} (USD) / Gold Futures (USD/Oz)")
+        # Header Details
+        st.caption(f"{index_label} (USD) vs. Gold Futures (USD/Oz)")
 
         # Metric Card
         st.metric(label="Latest USD Ratio", value=f"{latest_ratio:.4f}")
@@ -107,7 +106,7 @@ def render_gold_ratio_widget():
                 x=df.index,
                 y=df["Ratio"],
                 mode="lines",
-                name="Ratio",
+                name="Gold / Nifty 500",
                 line=dict(color="#1f77b4", width=1.8),
             )
         )
@@ -174,4 +173,4 @@ def render_gold_ratio_widget():
             """
         )
     except Exception as e:
-        st.error(f"Unable to load Gold Ratio chart: {e}")
+        st.error(f"Unable to load Gold / Nifty 500 chart: {e}")
