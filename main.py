@@ -1,11 +1,11 @@
-import pandas as pd
+import json
+from datetime import datetime
+import pytz
 import config
 from downloader import DataDownloader
 from returns import ReturnEngine
 from liquidity import LiquidityEngine
 from ranking import RankingEngine
-import yfinance as yf
-
 
 class MomentumScanner:
     def __init__(self):
@@ -14,37 +14,50 @@ class MomentumScanner:
         self.liquidity_engine = LiquidityEngine()
         self.ranking_engine = RankingEngine()
 
+    def save_last_updated_time(self):
+        """Saves current timestamp in Indian Standard Time (IST)."""
+        ist = pytz.timezone('Asia/Kolkata')
+        now_ist = datetime.now(ist)
+        
+        # Format example: "October 09, 2026 at 07:00 PM IST"
+        timestamp_str = now_ist.strftime("%B %d, %Y at %I:%M %p IST")
+        
+        metadata = {
+            "last_updated": timestamp_str,
+            "iso_timestamp": now_ist.isoformat()
+        }
+        
+        config.OUTPUT_DIR.mkdir(exist_ok=True)
+        metadata_file = config.OUTPUT_DIR / "last_updated.json"
+        
+        with open(metadata_file, "w") as f:
+            json.dump(metadata, f, indent=4)
+            
+        print(f"Timestamp updated → {timestamp_str}")
+
     def run(self):
         print("\n🚀 MOMENTUM SCANNER PRO ONLINE\n")
 
-        # Step 1: Sync local historical data
         print("==============================")
         print("STEP 1: DATA DOWNLOAD CHECK")
         print("==============================")
         self.downloader.run()
 
-        # Step 2: Calculate historical momentum ranges
         print("\n==============================")
         print("STEP 2: MOMENTUM CALCULATION")
         print("==============================")
         returns_df = self.return_engine.run()
-        print(f"Returns computed for {len(returns_df)} stocks")
 
-        # Step 3: Run liquid flow checks
         print("\n==============================")
         print("STEP 3: LIQUIDITY FILTER")
         print("==============================")
         liquidity_df = self.liquidity_engine.run()
-        print(f"Liquidity computed for {len(liquidity_df)} stocks")
 
-        # Step 4: Run percentile sorting matrices
         print("\n==============================")
         print("STEP 4: RANKING ENGINE")
         print("==============================")
         final_df = self.ranking_engine.run(returns_df, liquidity_df)
-        print(f"Final stocks after filtering: {len(final_df)}")
 
-        # Step 5: Save files to output directory
         print("\n==============================")
         print("STEP 5: SAVING OUTPUTS")
         print("==============================")
@@ -58,12 +71,14 @@ class MomentumScanner:
             strong_file = config.STRONG_STOCKS_FILE
             strong_df.to_csv(strong_file, index=False)
 
+            # Save execution timestamp
+            self.save_last_updated_time()
+
             print(f"Saved all stocks → {all_file}")
             print(f"Saved strong stocks → {strong_file}")
             print("\n==============================")
             print("SCAN COMPLETE")
             print("==============================")
-            print(f"\nStrong Stocks Found: {len(strong_df)}")
         else:
             print("Warning: No matching stocks found across criteria.")
 
