@@ -14,10 +14,10 @@ class MomentumScanner:
         self.liquidity_engine = LiquidityEngine()
         self.ranking_engine = RankingEngine()
 
+
     def save_last_updated_time(self):
         """Saves current timestamp in Indian Standard Time (IST)."""
-        ist = pytz.timezone('Asia/Kolkata')
-        now_ist = datetime.now(ist)
+        now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
         
         # Format example: "October 09, 2026 at 07:00 PM IST"
         timestamp_str = now_ist.strftime("%B %d, %Y at %I:%M %p IST")
@@ -34,7 +34,6 @@ class MomentumScanner:
             json.dump(metadata, f, indent=4)
             
         print(f"Timestamp updated → {timestamp_str}")
-
     def run(self):
         print("\n🚀 MOMENTUM SCANNER PRO ONLINE\n")
 
