@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 from pathlib import Path
 import streamlit as st
@@ -35,7 +36,6 @@ left_section, right_section = st.columns([1, 2.5], gap="medium")
 # ==========================================
 # LEFT PORTION: Gold Ratio Suite (Tabbed)
 # ==========================================
-# ... inside left_section ...
 with left_section:
     st.subheader("Macro & Commodity Ratios")
 
@@ -113,3 +113,21 @@ with right_section:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.warning("No generated scanner output found yet.")
+
+    # ==========================================
+    # DISPLAY LAST UPDATED TIMESTAMP BELOW TABLE
+    # ==========================================
+    timestamp_file = Path("last_updated.json")
+    if not timestamp_file.exists():
+        timestamp_file = Path("output/last_updated.json")
+
+    if timestamp_file.exists():
+        try:
+            with open(timestamp_file, "r") as f:
+                ts_data = json.load(f)
+                last_updated = ts_data.get("last_updated", "N/A")
+            st.caption(f"🕒 **Updated on:** {last_updated}")
+        except Exception:
+            st.caption("🕒 **Updated on:** Timestamp unavailable")
+    else:
+        st.caption("🕒 **Updated on:** Timestamp unavailable")
