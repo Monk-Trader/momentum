@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 import config
 from downloader import DataDownloader
 from returns import ReturnEngine
@@ -14,7 +14,6 @@ class MomentumScanner:
         self.liquidity_engine = LiquidityEngine()
         self.ranking_engine = RankingEngine()
 
-
     def save_last_updated_time(self):
         """Saves current timestamp in Indian Standard Time (IST)."""
         now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
@@ -27,13 +26,14 @@ class MomentumScanner:
             "iso_timestamp": now_ist.isoformat()
         }
         
-        config.OUTPUT_DIR.mkdir(exist_ok=True)
+        config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         metadata_file = config.OUTPUT_DIR / "last_updated.json"
         
         with open(metadata_file, "w") as f:
             json.dump(metadata, f, indent=4)
             
         print(f"Timestamp updated → {timestamp_str}")
+
     def run(self):
         print("\n🚀 MOMENTUM SCANNER PRO ONLINE\n")
 
@@ -61,7 +61,7 @@ class MomentumScanner:
         print("STEP 5: SAVING OUTPUTS")
         print("==============================")
         if not final_df.empty:
-            config.OUTPUT_DIR.mkdir(exist_ok=True)
+            config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
             all_file = config.ALL_STOCKS_FILE
             final_df.to_csv(all_file, index=False)
