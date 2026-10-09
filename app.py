@@ -129,5 +129,14 @@ with right_section:
             st.caption(f"🕒 **Updated on:** {last_updated}")
         except Exception:
             st.caption("🕒 **Updated on:** Timestamp unavailable")
+    elif data_file.exists():
+        # Fallback: Use file modified time from strong_stocks.csv
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        
+        mtime = data_file.stat().st_mtime
+        last_updated_dt = datetime.fromtimestamp(mtime, tz=ZoneInfo("Asia/Kolkata"))
+        fallback_str = last_updated_dt.strftime("%B %d, %Y at %I:%M %p IST")
+        st.caption(f"🕒 **Updated on:** {fallback_str}")
     else:
         st.caption("🕒 **Updated on:** Timestamp unavailable")
