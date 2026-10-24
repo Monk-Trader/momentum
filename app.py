@@ -112,6 +112,42 @@ with right_section:
 
     st.write("")
 
+
+
+
+
+
+    
+    # --- LIVE PIPELINE DEBUG INSPECTOR ---
+    with st.expander("🔍 Live Pipeline Diagnostics"):
+        try:
+            from returns import ReturnEngine
+            from liquidity import LiquidityEngine
+            from ranking import RankingEngine
+            
+            r_df = ReturnEngine().run()
+            l_df = LiquidityEngine().run()
+            
+            if not l_df.empty:
+                liq_pass_count = l_df["Liquidity_Pass"].sum() if "Liquidity_Pass" in l_df.columns else "N/A"
+                st.write(f"Live LiquidityEngine - Total evaluated: {len(l_df)}")
+                st.write(f"Live LiquidityEngine - Passed Liquidity: {liq_pass_count}")
+            
+            ranked_debug = RankingEngine().run(r_df, l_df)
+            st.write(f"Live RankingEngine - Final Strong Stocks count: {(ranked_debug['Strong_Stock'] == True).sum() if not ranked_debug.empty and 'Strong_Stock' in ranked_debug.columns else 0}")
+        except Exception as e:
+            st.error(f"Diagnostics error: {e}")
+    # -------------------------------------
+
+
+
+
+
+
+
+
+    
+    
     # Display interactive data table
     if not df.empty:
         st.dataframe(df, use_container_width=True, hide_index=True)
