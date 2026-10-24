@@ -145,7 +145,7 @@ with right_section:
     else:
         st.caption("🕒 **Updated on:** Timestamp unavailable")
 
-----------------------------------------------------------------------------------
+
 import streamlit as st
 from ranking import RankingEngine
 from returns import ReturnEngine
