@@ -10,18 +10,6 @@ from gold_ratio import (
 )
 
 
-
-import shutil
-import config
-
-# TEMPORARY: Uncomment this once to wipe corrupted cloud cache files, then comment it back out
-if config.CACHE_DIR.exists():
-    shutil.rmtree(config.CACHE_DIR)
-    config.CACHE_DIR.mkdir(exist_ok=True)
-
-
-
-
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
 # Header section with visitor counter badge
