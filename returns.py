@@ -22,6 +22,7 @@ class ReturnEngine:
         try:
             p0 = close[-1]
             return {
+                "CMP": round(float(p0), 2),
                 "3M_Return": (p0 / close[-config.TRADING_DAYS_3M] - 1) * 100,
                 "6M_Return": (p0 / close[-config.TRADING_DAYS_6M] - 1) * 100,
                 "9M_Return": (p0 / close[-config.TRADING_DAYS_9M] - 1) * 100,
@@ -55,6 +56,7 @@ class ReturnEngine:
             w = self.weighted_return(r)
             results.append({
                 "Ticker": ticker,
+                "CMP": r["CMP"],
                 "3M_Return": r["3M_Return"],
                 "6M_Return": r["6M_Return"],
                 "9M_Return": r["9M_Return"],
