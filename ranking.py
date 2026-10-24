@@ -16,6 +16,33 @@ class RankingEngine:
         if df.empty:
             return df
 
+
+
+        
+
+
+        import streamlit as st
+        from returns import ReturnEngine
+        from liquidity import LiquidityEngine
+        from ranking import RankingEngine
+
+        # --- 1. Run your engines ---
+        returns_df = ReturnEngine().run()
+        liquidity_df = LiquidityEngine().run()
+
+        # --- 2. Run ranking engine ---
+        ranking_engine = RankingEngine()
+        ranked_df = ranking_engine.run(returns_df, liquidity_df)
+
+        # --- 3. ADD THE DEBUG LINE HERE ---
+        # (Assuming ranked_df contains the merged DataFrame after liquidity filtering)
+        st.write(f"Total stocks passing liquidity filter: {len(ranked_df)}")
+
+
+
+
+        
+
         # Quantile metric processing matrix
         df["RS_Rank"] = df["Weighted_Return"].rank(pct=True) * 100
 
