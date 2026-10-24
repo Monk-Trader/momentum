@@ -9,6 +9,11 @@ from gold_ratio import (
     render_oil_gold_widget,
 )
 
+if st.sidebar.button("🔄 Force Clear Cache & Rerun"):
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.rerun()
+
 st.set_page_config(page_title="Momentum Scanner", layout="wide")
 
 # Header section with visitor counter badge
