@@ -146,6 +146,6 @@ with right_section:
         st.caption("🕒 **Updated on:** Timestamp unavailable")
 
 
-
+import config
 st.write(f"Cloud MIN_RS_RANK: {config.MIN_RS_RANK}")
 st.write(f"Cloud MIN_ADTV_CRORE: {config.MIN_ADTV_CRORE}")
