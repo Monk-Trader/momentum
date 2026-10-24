@@ -52,4 +52,4 @@ jobs:
         git add .
         
         # Commit and push only if changes were detected
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Automated daily momentum scan output [skip ci]" && git push)
+        git diff --quiet && git diff --staged --quiet ||  git commit -m "Automated daily momentum scan output" && git push
