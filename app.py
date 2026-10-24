@@ -84,9 +84,12 @@ with right_section:
             total_universe = "N/A"
 
     # Locate scanner output data file
-    data_file = Path("strong_stocks.csv")
+    # Locate scanner output data file (Prioritize output/ folder first)
+    data_file = Path("output/strong_stocks.csv")
     if not data_file.exists():
-        data_file = Path("output/strong_stocks.csv")
+        data_file = Path("strong_stocks.csv")
+
+
 
     # Display metrics side by side
     m_col1, m_col2 = st.columns(2)
@@ -117,9 +120,10 @@ with right_section:
     # ==========================================
     # DISPLAY LAST UPDATED TIMESTAMP BELOW TABLE
     # ==========================================
-    timestamp_file = Path("last_updated.json")
+    # Prioritize output/ folder for timestamp
+    timestamp_file = Path("output/last_updated.json")
     if not timestamp_file.exists():
-        timestamp_file = Path("output/last_updated.json")
+        timestamp_file = Path("last_updated.json")
 
     if timestamp_file.exists():
         try:
