@@ -15,9 +15,9 @@ import shutil
 import config
 
 # TEMPORARY: Uncomment this once to wipe corrupted cloud cache files, then comment it back out
- if config.CACHE_DIR.exists():
-     shutil.rmtree(config.CACHE_DIR)
-     config.CACHE_DIR.mkdir(exist_ok=True)
+if config.CACHE_DIR.exists():
+    shutil.rmtree(config.CACHE_DIR)
+    config.CACHE_DIR.mkdir(exist_ok=True)
 
 
 
