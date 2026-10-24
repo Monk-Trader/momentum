@@ -144,8 +144,3 @@ with right_section:
         st.caption(f"🕒 **Updated on:** {fallback_str}")
     else:
         st.caption("🕒 **Updated on:** Timestamp unavailable")
-
-
-import config
-st.write(f"Cloud MIN_RS_RANK: {config.MIN_RS_RANK}")
-st.write(f"Cloud MIN_ADTV_CRORE: {config.MIN_ADTV_CRORE}")
