@@ -147,41 +147,5 @@ with right_section:
 
 
 
-import streamlit as st
-import pandas as pd
-import config
-from pathlib import Path
-
-st.subheader("🛠️ Parquet Cache Inspector (Cloud Debug)")
-
-# Point to your cache directory
-cache_dir = config.CACHE_DIR
-
-if cache_dir.exists():
-    parquet_files = list(cache_dir.glob("*.parquet"))
-    st.write(f"Total Parquet files found in cache: {len(parquet_files)}")
-    
-    if parquet_files:
-        # Create a summary table of the first few cache files
-        cache_data = []
-        for file_path in parquet_files[:10]: # Inspect first 10 files
-            try:
-                df = pd.read_parquet(file_path)
-                modified_time = pd.Timestamp(file_path.stat().st_mtime, unit='s')
-                cache_data.append({
-                    "Ticker": file_path.stem,
-                    "Rows (Days)": len(df),
-                    "Last Date": df["date"].max() if "date" in df.columns else "N/A",
-                    "File Modified": modified_time
-                })
-            except Exception as e:
-                pass
-        
-        if cache_data:
-            summary_df = pd.DataFrame(cache_data)
-            st.dataframe(summary_df)
-    else:
-        st.warning("⚠️ No parquet files found! The cache directory is empty on the cloud.")
-else:
-    st.error(f"❌ Cache directory does not exist at: {cache_dir}")
-
+st.write(f"Cloud MIN_RS_RANK: {config.MIN_RS_RANK}")
+st.write(f"Cloud MIN_ADTV_CRORE: {config.MIN_ADTV_CRORE}")
