@@ -145,25 +145,3 @@ with right_section:
     else:
         st.caption("🕒 **Updated on:** Timestamp unavailable")
 
-
-import streamlit as st
-from ranking import RankingEngine
-from returns import ReturnEngine
-# ... import your liquidity engine etc.
-
-# Run your engines on the website
-returns_df = ReturnEngine().run()
-liquidity_df = LiquidityEngine().run() # (whatever your liquidity engine is named)
-
-ranked_df = RankingEngine().run(returns_df, liquidity_df)
-
-# --- TEMPORARY DEBUG DISPLAY ON STREAMLIT ---
-st.write("--- WEBSITE DEBUG INFO ---")
-st.write(f"Total rows in ranked DataFrame: {len(ranked_df)}")
-if not ranked_df.empty and "Strong_Stock" in ranked_df.columns:
-    strong_count = ranked_df["Strong_Stock"].sum()
-    st.write(f"Count where Strong_Stock == True: {strong_count}")
-st.write(f"MIN_RS_RANK config setting: {config.MIN_RS_RANK}")
-st.write(f"MIN_ADTV_CRORE config setting: {config.MIN_ADTV_CRORE}")
-st.write("----------------------------")
-# ---------------------------------------------
