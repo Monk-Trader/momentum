@@ -64,7 +64,7 @@ class DataDownloader:
             return False
 
     def download_chunk(self, ticker_chunk: list) -> dict:
-        """Downloads chunks with smart incremental updates and cloud-safe rate limiting."""
+        """Downloads chunks safely with individual fallback to prevent multi-index drop bugs."""
         chunk_results = {"ok": [], "fail": [], "skip": [], "update": []}
 
         tickers_to_fetch = []
@@ -79,7 +79,6 @@ class DataDownloader:
                     last_date = cached_df["date"].max()
                     
                     today = pd.Timestamp.today().normalize()
-                    # Skip if updated within the last 3 days
                     if last_date >= (today - pd.Timedelta(days=3)):
                         chunk_results["skip"].append(ticker)
                         continue
@@ -96,62 +95,38 @@ class DataDownloader:
         if not tickers_to_fetch:
             return chunk_results
 
-        # Polite delay required for shared cloud hosting IPs
         time.sleep(1.5)
 
-        for attempt in range(config.MAX_RETRIES):
-            try:
-                df = yf.download(
-                    tickers_to_fetch,
-                    period=config.HISTORY_PERIOD,
-                    interval=config.INTERVAL,
-                    group_by="ticker",
-                    progress=False,
-                    auto_adjust=False,
-                    threads=False,
-                    multi_level_index=True
-                )
-
-                if df is None or df.empty:
-                    raise ValueError("Empty data packet returned.")
-
-                for ticker in tickers_to_fetch:
-                    try:
-                        ticker_df = None
-                        if len(tickers_to_fetch) == 1:
-                            ticker_df = df.copy()
-                        else:
-                            if isinstance(df.columns, pd.MultiIndex):
-                                if ticker in df.columns.levels[0]:
-                                    ticker_df = df[ticker].copy()
-                            else:
-                                sub_cols = [c for c in df.columns if ticker.lower() in str(c).lower()]
-                                if sub_cols:
-                                    ticker_df = df[sub_cols].copy()
-
-                        if ticker_df is None or ticker_df.empty:
-                            chunk_results["fail"].append(ticker)
-                            continue
-
-                        success = self.process_and_save(ticker, ticker_df, mode=ticker_modes.get(ticker, "w"))
-                        if success:
-                            if ticker_modes.get(ticker) == "append":
-                                chunk_results["update"].append(ticker)
-                            else:
-                                chunk_results["ok"].append(ticker)
-                        else:
-                            chunk_results["fail"].append(ticker)
-                    except Exception:
-                        chunk_results["fail"].append(ticker)
-
-                return chunk_results
-
-            except Exception:
-                time.sleep(2 * (attempt + 1))
-
-        # If all retries fail, mark remaining as failed
+        # Download tickers individually to ensure consistent single-level dataframes on cloud environments
         for ticker in tickers_to_fetch:
-            if ticker not in chunk_results["ok"] and ticker not in chunk_results["update"] and ticker not in chunk_results["fail"]:
+            success = False
+            for attempt in range(config.MAX_RETRIES):
+                try:
+                    df = yf.download(
+                        ticker,
+                        period=config.HISTORY_PERIOD,
+                        interval=config.INTERVAL,
+                        progress=False,
+                        auto_adjust=False,
+                        threads=False,
+                        multi_level_index=False
+                    )
+
+                    if df is None or df.empty:
+                        raise ValueError("Empty data packet.")
+
+                    mode = ticker_modes.get(ticker, "w")
+                    success = self.process_and_save(ticker, df, mode=mode)
+                    if success:
+                        if mode == "append":
+                            chunk_results["update"].append(ticker)
+                        else:
+                            chunk_results["ok"].append(ticker)
+                        break
+                except Exception:
+                    time.sleep(1 * (attempt + 1))
+            
+            if not success:
                 chunk_results["fail"].append(ticker)
 
         return chunk_results
