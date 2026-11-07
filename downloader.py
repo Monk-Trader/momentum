@@ -34,8 +34,9 @@ class DataDownloader:
             try:
                 # Extract individual stock data from multi-ticker download result
                 if isinstance(multi_df.columns, pd.MultiIndex):
-                    if ticker in multi_df.columns.levels[1]:
-                        df = multi_df.xs(ticker, level=1, axis=1).dropna(how="all")
+                    # FIX: group_by="ticker" puts tickers at Level 0 and attributes at Level 1
+                    if ticker in multi_df.columns.levels[0]:
+                        df = multi_df.xs(ticker, level=0, axis=1).dropna(how="all")
                     else:
                         results["fail"].append(ticker)
                         continue
