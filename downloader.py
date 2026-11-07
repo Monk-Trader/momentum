@@ -14,9 +14,9 @@ class DataDownloader:
         self.cache_dir.mkdir(exist_ok=True)
         self.tickers = self.loader.get_tickers()
 
-        # CLOUD OPTIMIZATION: Reduced threads & chunk size to avoid Streamlit Cloud IP bans
+        # Safe optimization to protect against rate-limits and IP blocks
         self.max_threads = 2
-        self.chunk_size = 15
+        self.chunk_size = 10  Smaller chunk size for safer batching
 
     def get_cache_path(self, ticker: str):
         return self.cache_dir / f"{ticker}.parquet"
@@ -24,6 +24,9 @@ class DataDownloader:
     def process_and_save(self, ticker: str, df: pd.DataFrame, mode: str = "w") -> bool:
         """Cleans, formats, and saves/updates dataframe to parquet cache incrementally."""
         try:
+            if df is None or df.empty:
+                return False
+
             df = df.reset_index()
             df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
 
@@ -64,11 +67,14 @@ class DataDownloader:
             return False
 
     def download_chunk(self, ticker_chunk: list) -> dict:
-        """Downloads chunks safely with individual fallback to prevent multi-index drop bugs."""
+        """Downloads chunks safely with incremental fetching and rate-limit protection."""
         chunk_results = {"ok": [], "fail": [], "skip": [], "update": []}
 
         tickers_to_fetch = []
         ticker_modes = {}
+        ticker_start_dates = {}
+
+        today = pd.Timestamp.today().normalize()
 
         for ticker in ticker_chunk:
             file_path = self.get_cache_path(ticker)
@@ -78,44 +84,62 @@ class DataDownloader:
                     cached_df["date"] = pd.to_datetime(cached_df["date"])
                     last_date = cached_df["date"].max()
                     
-                    today = pd.Timestamp.today().normalize()
+                    # Skip if data is already up to date (within last 3 days)
                     if last_date >= (today - pd.Timedelta(days=3)):
                         chunk_results["skip"].append(ticker)
                         continue
                     
+                    # For append mode, fetch only from the last recorded date minus a 5-day overlap buffer
                     tickers_to_fetch.append(ticker)
                     ticker_modes[ticker] = "append"
+                    ticker_start_dates[ticker] = (last_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
                 except Exception:
                     tickers_to_fetch.append(ticker)
                     ticker_modes[ticker] = "w"
+                    ticker_start_dates[ticker] = None
             else:
                 tickers_to_fetch.append(ticker)
                 ticker_modes[ticker] = "w"
+                ticker_start_dates[ticker] = None
 
         if not tickers_to_fetch:
             return chunk_results
 
-        time.sleep(1.5)
+        # Initial pause before hitting chunk requests
+        time.sleep(1.0)
 
-        # Download tickers individually to ensure consistent single-level dataframes on cloud environments
         for ticker in tickers_to_fetch:
             success = False
+            mode = ticker_modes.get(ticker, "w")
+            start_date = ticker_start_dates.get(ticker)
+
             for attempt in range(config.MAX_RETRIES):
                 try:
-                    df = yf.download(
-                        ticker,
-                        period=config.HISTORY_PERIOD,
-                        interval=config.INTERVAL,
-                        progress=False,
-                        auto_adjust=False,
-                        threads=False,
-                        multi_level_index=False
-                    )
+                    # Use incremental start date if updating, else full history period for new files
+                    if mode == "append" and start_date:
+                        df = yf.download(
+                            ticker,
+                            start=start_date,
+                            interval=config.INTERVAL,
+                            progress=False,
+                            auto_adjust=False,
+                            threads=False,
+                            multi_level_index=False
+                        )
+                    else:
+                        df = yf.download(
+                            ticker,
+                            period=config.HISTORY_PERIOD,
+                            interval=config.INTERVAL,
+                            progress=False,
+                            auto_adjust=False,
+                            threads=False,
+                            multi_level_index=False
+                        )
 
                     if df is None or df.empty:
                         raise ValueError("Empty data packet.")
 
-                    mode = ticker_modes.get(ticker, "w")
                     success = self.process_and_save(ticker, df, mode=mode)
                     if success:
                         if mode == "append":
@@ -124,15 +148,18 @@ class DataDownloader:
                             chunk_results["ok"].append(ticker)
                         break
                 except Exception:
-                    time.sleep(1 * (attempt + 1))
+                    time.sleep(2 * (attempt + 1))  # Exponential backoff on failure
             
             if not success:
                 chunk_results["fail"].append(ticker)
 
+            # CRITICAL: Polite delay between individual tickers to prevent Yahoo IP blocks
+            time.sleep(0.6)
+
         return chunk_results
 
     def run(self) -> dict:
-        print(f"⚡ Streamlit Cloud Safe Mode Active. Total items: {len(self.tickers)}")
+        print(f"⚡ Robust Safe Mode Active. Total items: {len(self.tickers)}")
 
         chunks = [self.tickers[i:i + self.chunk_size] for i in range(0, len(self.tickers), self.chunk_size)]
         results = {"ok": [], "fail": [], "skip": [], "update": []}
@@ -141,12 +168,16 @@ class DataDownloader:
             futures = {executor.submit(self.download_chunk, chunk): chunk for chunk in chunks}
 
             for future in as_completed(futures):
-                chunk_res = future.result()
-                results["ok"].extend(chunk_res["ok"])
-                results["fail"].extend(chunk_res["fail"])
-                results["skip"].extend(chunk_res["skip"])
-                results["update"].extend(chunk_res["update"])
+                try:
+                    chunk_res = future.result()
+                    results["ok"].extend(chunk_res["ok"])
+                    results["fail"].extend(chunk_res["fail"])
+                    results["skip"].extend(chunk_res["skip"])
+                    results["update"].extend(chunk_res["update"])
+                except Exception as e:
+                    print(f"Chunk execution error: {e}")
 
+        print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])})")
         return results
 
 
