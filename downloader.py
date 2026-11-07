@@ -16,7 +16,7 @@ class DataDownloader:
 
         # Safe optimization to protect against rate-limits and IP blocks
         self.max_threads = 2
-        self.chunk_size = 10  Smaller chunk size for safer batching
+        self.chunk_size = 10  # Smaller chunk size for safer batching
 
     def get_cache_path(self, ticker: str):
         return self.cache_dir / f"{ticker}.parquet"
@@ -177,7 +177,7 @@ class DataDownloader:
                 except Exception as e:
                     print(f"Chunk execution error: {e}")
 
-        print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])})")
+        print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])}")
         return results
 
 
