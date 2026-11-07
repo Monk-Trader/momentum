@@ -39,13 +39,7 @@ jobs:
           mv universe.csv resources/universe.csv
         fi
 
-    # ==========================================
-    # REMOVE THIS STEP AFTER RUNNING IT ONCE TODAY!
-    # ==========================================
-    - name: ONE-TIME Cache Reset (Delete Stale Data)
-      run: |
-        rm -rf cache/*
-        echo "Stale cache cleared for fresh baseline download!"
+  
 
     - name: Execute Momentum Engine
       run: |
