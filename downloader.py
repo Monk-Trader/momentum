@@ -157,7 +157,7 @@ class DataDownloader:
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
             futures = {executor.submit(self.download_batch, batch): batch for batch in batches}
 
-            for future in as_connected(futures):
+            for future in as_completed(futures):
                 try:
                     chunk_res = future.result()
                     results["ok"].extend(chunk_res["ok"])
