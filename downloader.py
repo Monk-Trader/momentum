@@ -15,8 +15,9 @@ class DataDownloader:
         self.tickers = self.loader.get_tickers()
 
         # Batch size for bulk yfinance downloads (safe for cloud IPs)
-        self.batch_size = 50
-        self.max_threads = 3
+        self.batch_size = 40
+        self.max_threads = 1
+        self.batch_delay = 2.0      # Seconds to wait between batch requests
 
     def get_cache_path(self, ticker: str):
         return self.cache_dir / f"{ticker}.parquet"
@@ -149,28 +150,29 @@ class DataDownloader:
         return batch_results
 
     def run(self) -> dict:
-        print(f"⚡ High-Speed Batch Downloader Active. Total items: {len(self.tickers)}")
+        print(f"⚡ Rate-Limit Safe Downloader Active. Total items: {len(self.tickers)}")
 
-        # Split tickers into batches of 50
         batches = [self.tickers[i:i + self.batch_size] for i in range(0, len(self.tickers), self.batch_size)]
         results = {"ok": [], "fail": [], "skip": [], "update": []}
 
-        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-            futures = {executor.submit(self.download_batch, batch): batch for batch in batches}
-
-            for future in as_completed(futures):
-                try:
-                    chunk_res = future.result()
-                    results["ok"].extend(chunk_res["ok"])
-                    results["fail"].extend(chunk_res["fail"])
-                    results["skip"].extend(chunk_res["skip"])
-                    results["update"].extend(chunk_res["update"])
-                except Exception as e:
-                    print(f"Batch execution error: {e}")
+        # Sequential processing with a polite delay prevents Yahoo Finance IP bans
+        for idx, batch in enumerate(batches, 1):
+            print(f"Processing batch {idx}/{len(batches)} ({len(batch)} tickers)...")
+            try:
+                chunk_res = self.download_batch(batch)
+                results["ok"].extend(chunk_res["ok"])
+                results["fail"].extend(chunk_res["fail"])
+                results["skip"].extend(chunk_res["skip"])
+                results["update"].extend(chunk_res["update"])
+                
+                # Polite sleep between batches to respect rate limits
+                time.sleep(self.batch_delay)
+            except Exception as e:
+                print(f"Batch {idx} execution error: {e}")
 
         print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])}")
         return results
-
+    
 
 if __name__ == "__main__":
     downloader = DataDownloader()
