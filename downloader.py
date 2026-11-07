@@ -14,69 +14,89 @@ class DataDownloader:
         self.cache_dir.mkdir(exist_ok=True)
         self.tickers = self.loader.get_tickers()
 
-        # Safe optimization to protect against rate-limits and IP blocks
-        self.max_threads = 2
-        self.chunk_size = 10  # Smaller chunk size for safer batching
+        # Batch size for bulk yfinance downloads (safe for cloud IPs)
+        self.batch_size = 50
+        self.max_threads = 3
 
     def get_cache_path(self, ticker: str):
         return self.cache_dir / f"{ticker}.parquet"
 
-    def process_and_save(self, ticker: str, df: pd.DataFrame, mode: str = "w") -> bool:
-        """Cleans, formats, and saves/updates dataframe to parquet cache incrementally."""
-        try:
-            if df is None or df.empty:
-                return False
+    def process_and_save_batch(self, multi_df: pd.DataFrame, tickers: list) -> dict:
+        """Processes and saves multi-index or single-index dataframe chunks into individual parquet files."""
+        results = {"ok": [], "fail": [], "update": []}
+        
+        if multi_df is None or multi_df.empty:
+            for t in tickers:
+                results["fail"].append(t)
+            return results
 
-            df = df.reset_index()
-            df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
+        for ticker in tickers:
+            try:
+                # Extract individual stock data from multi-ticker download result
+                if isinstance(multi_df.columns, pd.MultiIndex):
+                    if ticker in multi_df.columns.levels[1]:
+                        df = multi_df.xs(ticker, level=1, axis=1).dropna(how="all")
+                    else:
+                        results["fail"].append(ticker)
+                        continue
+                else:
+                    # Single ticker fallback
+                    df = multi_df.copy()
 
-            date_col = "date" if "date" in df.columns else ("datetime" if "datetime" in df.columns else None)
-            close_col = "close" if "close" in df.columns else None
+                if df is None or df.empty:
+                    results["fail"].append(ticker)
+                    continue
 
-            if not close_col:
-                for col in df.columns:
-                    if "close" in col:
-                        close_col = col
-                        break
+                df = df.reset_index()
+                df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
 
-            if not date_col or not close_col or df[close_col].dropna().empty:
-                return False
+                date_col = "date" if "date" in df.columns else ("datetime" if "datetime" in df.columns else None)
+                close_col = "close" if "close" in df.columns else None
 
-            required_cols = [date_col, "open", "high", "low", close_col, "volume"]
-            available_cols = [c for c in required_cols if c in df.columns]
-            df = df[available_cols]
-            
-            rename_map = {date_col: "date", close_col: "close"}
-            df = df.rename(columns=rename_map)
-            df["date"] = pd.to_datetime(df["date"])
+                if not close_col:
+                    for col in df.columns:
+                        if "close" in col:
+                            close_col = col
+                            break
 
-            file_path = self.get_cache_path(ticker)
+                if not date_col or not close_col or df[close_col].dropna().empty:
+                    results["fail"].append(ticker)
+                    continue
 
-            if mode == "append" and file_path.exists():
-                existing_df = pd.read_parquet(file_path)
-                existing_df["date"] = pd.to_datetime(existing_df["date"])
+                required_cols = [date_col, "open", "high", "low", close_col, "volume"]
+                available_cols = [c for c in required_cols if c in df.columns]
+                df = df[available_cols]
                 
-                # Combine, drop duplicate dates, and sort chronologically
-                combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=["date"]).sort_values("date")
-                combined_df.to_parquet(file_path, index=False)
-            else:
-                df.to_parquet(file_path, index=False)
+                rename_map = {date_col: "date", close_col: "close"}
+                df = df.rename(columns=rename_map)
+                df["date"] = pd.to_datetime(df["date"])
 
-            return True
-        except Exception:
-            return False
+                file_path = self.get_cache_path(ticker)
 
-    def download_chunk(self, ticker_chunk: list) -> dict:
-        """Downloads chunks safely with incremental fetching and rate-limit protection."""
-        chunk_results = {"ok": [], "fail": [], "skip": [], "update": []}
+                if file_path.exists():
+                    existing_df = pd.read_parquet(file_path)
+                    existing_df["date"] = pd.to_datetime(existing_df["date"])
+                    combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=["date"]).sort_values("date")
+                    combined_df.to_parquet(file_path, index=False)
+                    results["update"].append(ticker)
+                else:
+                    df.to_parquet(file_path, index=False)
+                    results["ok"].append(ticker)
 
+            except Exception:
+                results["fail"].append(ticker)
+
+        return results
+
+    def download_batch(self, batch_tickers: list) -> dict:
+        """Downloads a batch of tickers in a single yfinance call to prevent IP blocks."""
+        batch_results = {"ok": [], "fail": [], "skip": [], "update": []}
+        
         tickers_to_fetch = []
-        ticker_modes = {}
-        ticker_start_dates = {}
-
         today = pd.Timestamp.today().normalize()
 
-        for ticker in ticker_chunk:
+        # Check cache status first
+        for ticker in batch_tickers:
             file_path = self.get_cache_path(ticker)
             if file_path.exists():
                 try:
@@ -84,90 +104,60 @@ class DataDownloader:
                     cached_df["date"] = pd.to_datetime(cached_df["date"])
                     last_date = cached_df["date"].max()
                     
-                    # Skip if data is already up to date (within last 3 days)
+                    # Skip if up to date within the last 3 days
                     if last_date >= (today - pd.Timedelta(days=3)):
-                        chunk_results["skip"].append(ticker)
+                        batch_results["skip"].append(ticker)
                         continue
-                    
-                    # For append mode, fetch only from the last recorded date minus a 5-day overlap buffer
-                    tickers_to_fetch.append(ticker)
-                    ticker_modes[ticker] = "append"
-                    ticker_start_dates[ticker] = (last_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
                 except Exception:
-                    tickers_to_fetch.append(ticker)
-                    ticker_modes[ticker] = "w"
-                    ticker_start_dates[ticker] = None
-            else:
-                tickers_to_fetch.append(ticker)
-                ticker_modes[ticker] = "w"
-                ticker_start_dates[ticker] = None
+                    pass
+            tickers_to_fetch.append(ticker)
 
         if not tickers_to_fetch:
-            return chunk_results
+            return batch_results
 
-        # Initial pause before hitting chunk requests
-        time.sleep(1.0)
+        # Attempt batch download with retries
+        success = False
+        for attempt in range(config.MAX_RETRIES):
+            try:
+                time.sleep(1.0 * (attempt + 1))
+                multi_df = yf.download(
+                    tickers_to_fetch,
+                    period=config.HISTORY_PERIOD,
+                    interval=config.INTERVAL,
+                    group_by="ticker",
+                    progress=False,
+                    auto_adjust=False,
+                    threads=True
+                )
 
-        for ticker in tickers_to_fetch:
-            success = False
-            mode = ticker_modes.get(ticker, "w")
-            start_date = ticker_start_dates.get(ticker)
+                if multi_df is not None and not multi_df.empty:
+                    res = self.process_and_save_batch(multi_df, tickers_to_fetch)
+                    batch_results["ok"].extend(res["ok"])
+                    batch_results["update"].extend(res["update"])
+                    batch_results["fail"].extend(res["fail"])
+                    success = True
+                    break
+            except Exception:
+                continue
 
-            for attempt in range(config.MAX_RETRIES):
-                try:
-                    # Use incremental start date if updating, else full history period for new files
-                    if mode == "append" and start_date:
-                        df = yf.download(
-                            ticker,
-                            start=start_date,
-                            interval=config.INTERVAL,
-                            progress=False,
-                            auto_adjust=False,
-                            threads=False,
-                            multi_level_index=False
-                        )
-                    else:
-                        df = yf.download(
-                            ticker,
-                            period=config.HISTORY_PERIOD,
-                            interval=config.INTERVAL,
-                            progress=False,
-                            auto_adjust=False,
-                            threads=False,
-                            multi_level_index=False
-                        )
+        # If batch download fails completely, mark all as failed
+        if not success:
+            for ticker in tickers_to_fetch:
+                batch_results["fail"].append(ticker)
 
-                    if df is None or df.empty:
-                        raise ValueError("Empty data packet.")
-
-                    success = self.process_and_save(ticker, df, mode=mode)
-                    if success:
-                        if mode == "append":
-                            chunk_results["update"].append(ticker)
-                        else:
-                            chunk_results["ok"].append(ticker)
-                        break
-                except Exception:
-                    time.sleep(2 * (attempt + 1))  # Exponential backoff on failure
-            
-            if not success:
-                chunk_results["fail"].append(ticker)
-
-            # CRITICAL: Polite delay between individual tickers to prevent Yahoo IP blocks
-            time.sleep(0.6)
-
-        return chunk_results
+        return batch_results
 
     def run(self) -> dict:
-        print(f"⚡ Robust Safe Mode Active. Total items: {len(self.tickers)}")
+        print(f"⚡ High-Speed Batch Downloader Active. Total items: {len(self.tickers)}")
 
-        chunks = [self.tickers[i:i + self.chunk_size] for i in range(0, len(self.tickers), self.chunk_size)]
+        # Split tickers into batches of 50
+        batches = [self.tickers[i:i + self.batch_size] for i in range(0, len(self.tickers), self.batch_size)]
         results = {"ok": [], "fail": [], "skip": [], "update": []}
 
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-            futures = {executor.submit(self.download_chunk, chunk): chunk for chunk in chunks}
+            futures = {executor.submit(self.download_batch, batch): batch for batch in batches}
 
-            for future in as_completed(futures):
+            for future in as_connected(futures):
                 try:
                     chunk_res = future.result()
                     results["ok"].extend(chunk_res["ok"])
@@ -175,7 +165,7 @@ class DataDownloader:
                     results["skip"].extend(chunk_res["skip"])
                     results["update"].extend(chunk_res["update"])
                 except Exception as e:
-                    print(f"Chunk execution error: {e}")
+                    print(f"Batch execution error: {e}")
 
         print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])}")
         return results
