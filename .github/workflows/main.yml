@@ -44,6 +44,9 @@ jobs:
       run: |
         python main.py
 
+    - name: Diagnose cache
+      run: python diagnose_cache.py    
+
     - name: Commit and Push Updated Output CSVs & Cache
       run: |
         git config --global user.name "github-actions[bot]"
