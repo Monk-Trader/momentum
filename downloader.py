@@ -47,10 +47,28 @@ class DataDownloader:
         if not path.exists():
             return None
         try:
-            d = pd.read_parquet(path, columns=["date"])["date"]
-            return pd.to_datetime(d).max().normalize()
+            df = pd.read_parquet(path, columns=["date", "close"])
+            # a bar with NaN close is not a usable bar: only count dates that have a real close
+            d = pd.to_datetime(df.loc[df["close"].notna(), "date"])
+            return d.max().normalize() if len(d) else None
         except Exception:
             return None
+
+    def _clean_cache(self) -> int:
+        """One-off repair: remove rows with NaN close that earlier runs saved and never fixed."""
+        cleaned = 0
+        for path in self.cache_dir.glob("*.parquet"):
+            try:
+                df = pd.read_parquet(path)
+                if "close" not in df.columns:
+                    continue
+                good = df.dropna(subset=["close"])
+                if len(good) != len(df):
+                    good.to_parquet(path, index=False)
+                    cleaned += 1
+            except Exception:
+                continue
+        return cleaned
 
     def _needs_update(self, ticker: str, expected: pd.Timestamp) -> bool:
         last = self._last_cached_date(ticker)
@@ -70,6 +88,7 @@ class DataDownloader:
                 pass
         # keep="last": fresh data must override an old partial or NaN bar (original kept the stale one)
         df = df.drop_duplicates(subset=["date"], keep="last").sort_values("date")
+        df = df.dropna(subset=["close"])
         df.to_parquet(path, index=False)
 
     # ---------- download helpers ----------
@@ -139,6 +158,9 @@ class DataDownloader:
     def run(self) -> dict:
         expected = expected_last_session()
         print(f"Downloader active. Universe: {len(self.tickers)} | expected last bar: {expected.date()}")
+
+        n_clean = self._clean_cache()
+        print(f"Cache repair: removed NaN-close rows from {n_clean} files")
 
         pending = [t for t in self.tickers if self._needs_update(t, expected)]
         skipped = len(self.tickers) - len(pending)
