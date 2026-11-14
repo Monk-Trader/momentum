@@ -46,7 +46,7 @@ with left_section:
         tab_silver,
         tab_oil,
     ) = st.tabs(
-        ["Gold / Nifty", "Gold / Copper", "Gold / Silver", "Gold / Oil"]
+        ["Nifty/Gold", "Gold / Copper", "Gold / Silver", "Gold / Oil"]
     )
 
     with tab_nifty:
