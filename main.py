@@ -11,6 +11,8 @@ from ranking import RankingEngine
 # The RS rank is relative (top ~10% of the liquid pool), so the strong-stock count should stay
 # roughly stable from day to day. Far fewer means the data is broken, not that the market is weak.
 MIN_STRONG_EXPECTED = getattr(config, "MIN_STRONG_EXPECTED", 20)
+MAX_LAG_DAYS = getattr(config, "MAX_LAG_DAYS", 4)        # calendar days behind the expected last session
+MAX_STALE_PCT = getattr(config, "MAX_STALE_PCT", 10.0)   # % of universe allowed beyond that lag
 
 
 class MomentumScanner:
@@ -46,7 +48,19 @@ class MomentumScanner:
         print("==============================")
         print("STEP 1: DATA DOWNLOAD CHECK")
         print("==============================")
-        self.downloader.run()
+        dl = self.downloader.run()
+
+        # Freshness guard: stop before publishing if the price feed is dead or many tickers are stale.
+        # One session of lag (Yahoo not yet final for the latest close) is normal and does not trip this.
+        fresh = dl.get("freshness", {}) if isinstance(dl, dict) else {}
+        if fresh:
+            if fresh["newest_lag_days"] > MAX_LAG_DAYS or fresh["stale_pct"] > MAX_STALE_PCT:
+                print(
+                    f"ERROR: stale data. Freshest bar is {fresh['newest_lag_days']} day(s) behind {fresh['expected']} "
+                    f"and {fresh['stale_pct']:.1f}% of tickers are more than {MAX_LAG_DAYS} days behind "
+                    f"(limits: {MAX_LAG_DAYS} days / {MAX_STALE_PCT:.0f}%). Outputs were NOT overwritten."
+                )
+                sys.exit(1)
 
         print("\n==============================")
         print("STEP 2: MOMENTUM CALCULATION")
