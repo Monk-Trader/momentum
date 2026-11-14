@@ -36,6 +36,7 @@ class DataDownloader:
         self.max_rounds = 4             # full passes over still-missing tickers
         self.round_backoff = 30.0       # seconds * round number, lets a rate limit cool off
         self.fail_warn_pct = 10.0
+        self.max_lag_days = 4           # calendar days a ticker may trail the expected bar before it counts as stale
         self.errors = {}                # ticker -> last reason, written to failed_tickers.txt
 
     # ---------- cache helpers ----------
@@ -201,19 +202,38 @@ class DataDownloader:
                 time.sleep(1.0)
             pending = remaining
 
-        self._report(expected, skipped, updated, pending)
-        return {"updated": updated, "skipped": skipped, "failed": pending}
+        freshness = self._report(expected, skipped, updated, pending)
+        return {"updated": updated, "skipped": skipped, "failed": pending, "freshness": freshness}
 
     def _report(self, expected, skipped, updated, failed):
         total = len(self.tickers)
         last_dates = {t: self._last_cached_date(t) for t in self.tickers}
-        stale = [t for t, d in last_dates.items() if d is None or d < expected]
-        fresh = total - len(stale)
+
+        # Yahoo often has no final close for the latest session on many NSE tickers (weekends, right
+        # after the close), so a ticker one session behind is normal. Only a gap of more than
+        # max_lag_days calendar days counts as stale.
+        current = lagging = 0
+        for d in last_dates.values():
+            if d is None:
+                continue
+            behind = (expected - d).days
+            if behind <= 0:
+                current += 1
+            elif behind <= self.max_lag_days:
+                lagging += 1
+        stale = total - current - lagging
+        stale_pct = 100.0 * stale / max(total, 1)
+
+        valid_dates = [d for d in last_dates.values() if d is not None]
+        newest = max(valid_dates) if valid_dates else None
+        newest_lag = max((expected - newest).days, 0) if newest is not None else 9999
 
         print("\n===== DOWNLOAD SUMMARY =====")
         print(f"Updated: {len(updated)} | Already fresh: {skipped} | Failed: {len(failed)}")
-        print(f"Tickers with bar >= {expected.date()}: {fresh}/{total}")
-        counts = pd.Series([d for d in last_dates.values() if d is not None]).value_counts().head(5)
+        print(f"Bar for {expected.date()}: {current}/{total} | "
+              f"1-session lag (<= {self.max_lag_days}d behind, normal when Yahoo has not finalized the close): {lagging} | "
+              f"Stale (> {self.max_lag_days}d behind or no data): {stale} ({stale_pct:.1f}%)")
+        counts = pd.Series(valid_dates).value_counts().head(5)
         print("Most common last dates in cache:")
         for d, n in counts.items():
             print(f"  {d.date()}: {n}")
@@ -223,10 +243,14 @@ class DataDownloader:
             out.write_text("\n".join(f"{t}\t{self.errors.get(t, '')}" for t in failed))
             print(f"Failed list with reasons saved to {out}")
 
-        stale_pct = 100.0 * len(stale) / max(total, 1)
         if stale_pct > self.fail_warn_pct:
-            print(f"WARNING: {stale_pct:.0f}% of the universe has stale data. "
+            print(f"WARNING: {stale_pct:.0f}% of the universe is more than {self.max_lag_days} days behind. "
                   f"Screener output will be unreliable until this is fixed.")
+
+        return {
+            "total": total, "current": current, "lagging": lagging, "stale": stale,
+            "stale_pct": stale_pct, "newest_lag_days": newest_lag, "expected": str(expected.date()),
+        }
 
 
 if __name__ == "__main__":
