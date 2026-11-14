@@ -1,10 +1,27 @@
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import yfinance as yf
-from tqdm import tqdm
+
 import config
 from universe import UniverseLoader
+
+IST = ZoneInfo("Asia/Kolkata")
+KEEP_COLS = ["date", "open", "high", "low", "close", "volume"]
+
+
+def expected_last_session() -> pd.Timestamp:
+    """Most recent weekday whose daily bar should be final (IST, after ~16:00).
+    Exchange holidays are not modelled: on a holiday every ticker is simply re-checked."""
+    now = datetime.now(IST)
+    d = now.date()
+    if now.hour < 16:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return pd.Timestamp(d)
 
 
 class DataDownloader:
@@ -12,168 +29,183 @@ class DataDownloader:
         self.loader = UniverseLoader()
         self.cache_dir = config.CACHE_DIR
         self.cache_dir.mkdir(exist_ok=True)
-        self.tickers = self.loader.get_tickers()
+        self.tickers = list(dict.fromkeys(self.loader.get_tickers()))  # de-duplicated, order kept
 
-        # Batch size for bulk yfinance downloads (safe for cloud IPs)
-        self.batch_size = 40
-        self.max_threads = 1
-        self.batch_delay = 2.0      # Seconds to wait between batch requests
+        self.batch_size = 25
+        self.batch_delay = 3.0
+        self.max_rounds = 4             # full passes over still-missing tickers
+        self.round_backoff = 30.0       # seconds * round number, lets a rate limit cool off
+        self.fail_warn_pct = 10.0
+        self.errors = {}                # ticker -> last reason, written to failed_tickers.txt
 
+    # ---------- cache helpers ----------
     def get_cache_path(self, ticker: str):
         return self.cache_dir / f"{ticker}.parquet"
 
-    def process_and_save_batch(self, multi_df: pd.DataFrame, tickers: list) -> dict:
-        """Processes and saves multi-index or single-index dataframe chunks into individual parquet files."""
-        results = {"ok": [], "fail": [], "update": []}
-        
-        if multi_df is None or multi_df.empty:
-            for t in tickers:
-                results["fail"].append(t)
-            return results
+    def _last_cached_date(self, ticker: str):
+        path = self.get_cache_path(ticker)
+        if not path.exists():
+            return None
+        try:
+            d = pd.read_parquet(path, columns=["date"])["date"]
+            return pd.to_datetime(d).max().normalize()
+        except Exception:
+            return None
 
-        for ticker in tickers:
+    def _needs_update(self, ticker: str, expected: pd.Timestamp) -> bool:
+        last = self._last_cached_date(ticker)
+        return last is None or last < expected
+
+    def _save(self, ticker: str, df: pd.DataFrame):
+        path = self.get_cache_path(ticker)
+        if path.exists():
             try:
-                # Extract individual stock data from multi-ticker download result
-                if isinstance(multi_df.columns, pd.MultiIndex):
-                    # FIX: group_by="ticker" puts tickers at Level 0 and attributes at Level 1
-                    if ticker in multi_df.columns.levels[0]:
-                        df = multi_df.xs(ticker, level=0, axis=1).dropna(how="all")
-                    else:
-                        results["fail"].append(ticker)
-                        continue
-                else:
-                    # Single ticker fallback
-                    df = multi_df.copy()
-
-                if df is None or df.empty:
-                    results["fail"].append(ticker)
-                    continue
-
-                df = df.reset_index()
-                df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
-
-                date_col = "date" if "date" in df.columns else ("datetime" if "datetime" in df.columns else None)
-                close_col = "close" if "close" in df.columns else None
-
-                if not close_col:
-                    for col in df.columns:
-                        if "close" in col:
-                            close_col = col
-                            break
-
-                if not date_col or not close_col or df[close_col].dropna().empty:
-                    results["fail"].append(ticker)
-                    continue
-
-                required_cols = [date_col, "open", "high", "low", close_col, "volume"]
-                available_cols = [c for c in required_cols if c in df.columns]
-                df = df[available_cols]
-                
-                rename_map = {date_col: "date", close_col: "close"}
-                df = df.rename(columns=rename_map)
-                df["date"] = pd.to_datetime(df["date"])
-
-                file_path = self.get_cache_path(ticker)
-
-                if file_path.exists():
-                    existing_df = pd.read_parquet(file_path)
-                    existing_df["date"] = pd.to_datetime(existing_df["date"])
-                    combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=["date"]).sort_values("date")
-                    combined_df.to_parquet(file_path, index=False)
-                    results["update"].append(ticker)
-                else:
-                    df.to_parquet(file_path, index=False)
-                    results["ok"].append(ticker)
-
+                old = pd.read_parquet(path)
+                old["date"] = pd.to_datetime(old["date"]).dt.normalize()
+                # The pull covers the full history window: if it reaches back as far as the cache,
+                # replace instead of merge so split/bonus adjustments never leave jumps in old rows.
+                if df["date"].min() > old["date"].min():
+                    df = pd.concat([old, df])
             except Exception:
-                results["fail"].append(ticker)
+                pass
+        # keep="last": fresh data must override an old partial or NaN bar (original kept the stale one)
+        df = df.drop_duplicates(subset=["date"], keep="last").sort_values("date")
+        df.to_parquet(path, index=False)
 
-        return results
-
-    def download_batch(self, batch_tickers: list) -> dict:
-        """Downloads a batch of tickers in a single yfinance call to prevent IP blocks."""
-        batch_results = {"ok": [], "fail": [], "skip": [], "update": []}
-        
-        tickers_to_fetch = []
-        today = pd.Timestamp.today().normalize()
-
-        # Check cache status first
-        for ticker in batch_tickers:
-            file_path = self.get_cache_path(ticker)
-            if file_path.exists():
-                try:
-                    cached_df = pd.read_parquet(file_path)
-                    cached_df["date"] = pd.to_datetime(cached_df["date"])
-                    last_date = cached_df["date"].max()
-                    
-                    # Skip if up to date within the last 3 days
-                    if last_date >= (today - pd.Timedelta(days=3)):
-                        batch_results["skip"].append(ticker)
-                        continue
-                except Exception:
-                    pass
-            tickers_to_fetch.append(ticker)
-
-        if not tickers_to_fetch:
-            return batch_results
-
-        # Attempt batch download with retries
-        success = False
-        for attempt in range(config.MAX_RETRIES):
-            try:
-                time.sleep(1.0 * (attempt + 1))
-                multi_df = yf.download(
-                    tickers_to_fetch,
-                    period=config.HISTORY_PERIOD,
-                    interval=config.INTERVAL,
-                    group_by="ticker",
-                    progress=False,
-                    auto_adjust=False,
-                    threads=True
-                )
-
-                if multi_df is not None and not multi_df.empty:
-                    res = self.process_and_save_batch(multi_df, tickers_to_fetch)
-                    batch_results["ok"].extend(res["ok"])
-                    batch_results["update"].extend(res["update"])
-                    batch_results["fail"].extend(res["fail"])
-                    success = True
+    # ---------- download helpers ----------
+    def _extract(self, raw, ticker: str, n_requested: int):
+        if raw is None or raw.empty:
+            self.errors[ticker] = "empty download"
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            level = None
+            for i in range(raw.columns.nlevels):
+                if ticker in raw.columns.get_level_values(i):
+                    level = i
                     break
-            except Exception:
-                continue
+            if level is None:
+                self.errors[ticker] = "ticker missing from result"
+                return None
+            df = raw.xs(ticker, level=level, axis=1)
+        else:
+            if n_requested != 1:
+                self.errors[ticker] = "flat result for multi-ticker request"
+                return None
+            df = raw.copy()
 
-        # If batch download fails completely, mark all as failed
-        if not success:
-            for ticker in tickers_to_fetch:
-                batch_results["fail"].append(ticker)
+        df = df.dropna(how="all").reset_index()
+        df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
+        if "date" not in df.columns and "datetime" in df.columns:
+            df = df.rename(columns={"datetime": "date"})
+        if "date" not in df.columns or "close" not in df.columns:
+            self.errors[ticker] = "no date/close column"
+            return None
 
-        return batch_results
+        df = df.dropna(subset=["close"])
+        if df.empty:
+            self.errors[ticker] = "all close values NaN"
+            return None
+        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
+        return df[[c for c in KEEP_COLS if c in df.columns]]
 
+    def _download(self, tickers: list):
+        try:
+            return yf.download(
+                tickers,
+                period=config.HISTORY_PERIOD,
+                interval=config.INTERVAL,
+                group_by="ticker",
+                progress=False,
+                auto_adjust=False,
+                threads=True,
+                timeout=30,
+            )
+        except Exception as e:
+            for t in tickers:
+                self.errors[t] = f"{type(e).__name__}: {e}"[:200]
+            return None
+
+    def _single_fallback(self, ticker: str):
+        try:
+            raw = yf.Ticker(ticker).history(
+                period=config.HISTORY_PERIOD, interval=config.INTERVAL, auto_adjust=False
+            )
+            return self._extract(raw, ticker, 1)
+        except Exception as e:
+            self.errors[ticker] = f"{type(e).__name__}: {e}"[:200]
+            return None
+
+    # ---------- main ----------
     def run(self) -> dict:
-        print(f"⚡ Rate-Limit Safe Downloader Active. Total items: {len(self.tickers)}")
+        expected = expected_last_session()
+        print(f"Downloader active. Universe: {len(self.tickers)} | expected last bar: {expected.date()}")
 
-        batches = [self.tickers[i:i + self.batch_size] for i in range(0, len(self.tickers), self.batch_size)]
-        results = {"ok": [], "fail": [], "skip": [], "update": []}
+        pending = [t for t in self.tickers if self._needs_update(t, expected)]
+        skipped = len(self.tickers) - len(pending)
+        updated = []
 
-        # Sequential processing with a polite delay prevents Yahoo Finance IP bans
-        for idx, batch in enumerate(batches, 1):
-            print(f"Processing batch {idx}/{len(batches)} ({len(batch)} tickers)...")
-            try:
-                chunk_res = self.download_batch(batch)
-                results["ok"].extend(chunk_res["ok"])
-                results["fail"].extend(chunk_res["fail"])
-                results["skip"].extend(chunk_res["skip"])
-                results["update"].extend(chunk_res["update"])
-                
-                # Polite sleep between batches to respect rate limits
+        for rnd in range(1, self.max_rounds + 1):
+            if not pending:
+                break
+            print(f"Round {rnd}/{self.max_rounds}: {len(pending)} tickers to fetch")
+            still = []
+            for i in range(0, len(pending), self.batch_size):
+                batch = pending[i:i + self.batch_size]
+                raw = self._download(batch)
+                for t in batch:
+                    df = self._extract(raw, t, len(batch))
+                    if df is None:
+                        still.append(t)       # retry only what actually failed
+                    else:
+                        self._save(t, df)
+                        updated.append(t)
                 time.sleep(self.batch_delay)
-            except Exception as e:
-                print(f"Batch {idx} execution error: {e}")
+            pending = still
+            if pending and rnd < self.max_rounds:
+                wait = self.round_backoff * rnd
+                print(f"  {len(pending)} failed, waiting {wait:.0f}s before retrying")
+                time.sleep(wait)
 
-        print(f"Completed -> New: {len(results['ok'])}, Updated: {len(results['update'])}, Skipped: {len(results['skip'])}, Failed: {len(results['fail'])}")
-        return results
-    
+        if pending:
+            print(f"Per-ticker fallback for {len(pending)} tickers")
+            remaining = []
+            for t in pending:
+                df = self._single_fallback(t)
+                if df is None:
+                    remaining.append(t)
+                else:
+                    self._save(t, df)
+                    updated.append(t)
+                time.sleep(1.0)
+            pending = remaining
+
+        self._report(expected, skipped, updated, pending)
+        return {"updated": updated, "skipped": skipped, "failed": pending}
+
+    def _report(self, expected, skipped, updated, failed):
+        total = len(self.tickers)
+        last_dates = {t: self._last_cached_date(t) for t in self.tickers}
+        stale = [t for t, d in last_dates.items() if d is None or d < expected]
+        fresh = total - len(stale)
+
+        print("\n===== DOWNLOAD SUMMARY =====")
+        print(f"Updated: {len(updated)} | Already fresh: {skipped} | Failed: {len(failed)}")
+        print(f"Tickers with bar >= {expected.date()}: {fresh}/{total}")
+        counts = pd.Series([d for d in last_dates.values() if d is not None]).value_counts().head(5)
+        print("Most common last dates in cache:")
+        for d, n in counts.items():
+            print(f"  {d.date()}: {n}")
+
+        if failed:
+            out = self.cache_dir / "failed_tickers.txt"
+            out.write_text("\n".join(f"{t}\t{self.errors.get(t, '')}" for t in failed))
+            print(f"Failed list with reasons saved to {out}")
+
+        stale_pct = 100.0 * len(stale) / max(total, 1)
+        if stale_pct > self.fail_warn_pct:
+            print(f"WARNING: {stale_pct:.0f}% of the universe has stale data. "
+                  f"Screener output will be unreliable until this is fixed.")
+
 
 if __name__ == "__main__":
-    downloader = DataDownloader()
-    downloader.run()
+    DataDownloader().run()
